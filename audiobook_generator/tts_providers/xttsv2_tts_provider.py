@@ -3,7 +3,8 @@ import os
 import math
 import io
 
-import audiosegment
+import numpy as np
+import soundfile
 from pydub import AudioSegment
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
@@ -38,7 +39,7 @@ class XTTSV2TTSProvider(BaseTTSProvider):
         )
         # model.cuda()
 
-        self.file = io.BytesIO()
+        self.file_data = np.array([], dtype=np.float32)
         # 0.000$ per 1 million characters
         # or 0.000$ per 1000 characters
         self.price = 0.000        
@@ -59,15 +60,16 @@ class XTTSV2TTSProvider(BaseTTSProvider):
     ):
         self._chunkify(text)
 
-        self.file.seek(0)
-        audio: AudioSegment = AudioSegment.from_raw(
-            self.file, sample_width=2, frame_rate=24000, channels=1
-        )
         logger.debug(f"Exporting the audio")
-        audio.export(output_file)
+        tmp_file = output_file.replace(".mp3","_tmp.wav")
+        soundfile.write(tmp_file, self.file_data, 24000)
+
+        logger.debug(f"Converting to mp3")
+        AudioSegment.from_wav(tmp_file).export(output_file)
+        os.remove(tmp_file)
+
         set_audio_tags(output_file, audio_tags)
         logger.info(f"Saved the audio to: {output_file}")
-
 
     def estimate_cost(self, total_chars):
         return math.ceil(total_chars / 1000) * self.price
@@ -95,13 +97,14 @@ class XTTSV2TTSProvider(BaseTTSProvider):
         logger.debug(f"split into <{len(parts)}> parts: {parts}")
         return parts
 
-    def _generate_pause(self, time: int) -> bytes:
+    def _generate_pause(self, time: int):
         logger.debug(f"Generating pause")
         # pause time should be provided in ms
-        silent: AudioSegment = AudioSegment.silent(time, 24000)
-        return silent.raw_data  # type: ignore
+        n = 24 * time
+        silence = [0.0 for _ in range(n)]
+        return silence
 
-    def _generate_audio(self, text: str) -> bytes:
+    def _generate_audio(self, text: str):
         logger.debug(f"Generation audio for: <{text}>")
         output = self.model.synthesize(
             text,
@@ -110,25 +113,44 @@ class XTTSV2TTSProvider(BaseTTSProvider):
             gpt_cond_len=3,
             language="en",
         ).get("wav")
-        logger.debug("Decoding the chunk")
-        decoded_chunk = audiosegment.from_numpy_array(
-            nparr=output,
-            framerate=24000,
-        )
-        logger.debug("Returning the decoded chunk")
-        return decoded_chunk.raw_data  # type: ignore
-    
+        return output
+
     def _chunkify(self, full_text):
         logger.debug("Chunkifying the text")
         parsed_text = self._parse_text(full_text)
         for content in parsed_text:
             logger.debug(f"Content from parsed: <{content}>")
-            for sentence in content.split("."):
-                audio_bytes = self._generate_audio(sentence + ".")
-                self.file.write(audio_bytes)
+            remainder = content
+            while remainder:
+                digest_chunk, remainder = self._xtts_digest_chunk(remainder)
+                audio_data = self._generate_audio(digest_chunk)
+                self.file_data = np.append(self.file_data, audio_data)
                 
             if content != parsed_text[-1]:
-                pause_bytes = self._generate_pause(1250)
-                self.file.write(pause_bytes)
+                pause_data = self._generate_pause(1250)
+                self.file_data = np.append(self.file_data, pause_bytes)
         logger.debug("Chunkifying done")
         
+    def _xtts_digest_chunk(self, text, max_len=250):
+        if len(text) <= max_len:
+            return text, ""
+
+        first_part = text[:max_len]
+        end_position = max(
+            first_part.rfind("."),
+            first_part.rfind("?"),
+            first_part.rfind("!"),
+        )
+
+        if end_position == -1:
+            # A very long sentence? -> spliting it into two parts
+            end_position = first_part.rfind(" ")
+        if end_position == -1:
+            # A very long word? -> spliting it into two parts
+            end_position = max_len
+        else:
+            end_position += 1
+
+        first_part = text[:end_position]
+        remainder = text[end_position:]
+        return first_part, remainder
