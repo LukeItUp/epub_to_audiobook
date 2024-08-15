@@ -31,5 +31,7 @@ class GeneralConfig:
         self.voice_pitch = args.voice_pitch
         self.proxy = args.proxy
 
+        self.gpu = args.gpu
+
     def __str__(self):
         return ', '.join(f"{key}={value}" for key, value in self.__dict__.items())

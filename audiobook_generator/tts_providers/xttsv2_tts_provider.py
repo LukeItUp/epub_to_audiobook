@@ -37,9 +37,9 @@ class XTTSV2TTSProvider(BaseTTSProvider):
             checkpoint_dir=XTTS_MODEL_PATH,
             eval=True
         )
-        # model.cuda()
+        if config.gpu:
+            self.model.cuda()
 
-        self.file_data = np.array([], dtype=np.float32)
         # 0.000$ per 1 million characters
         # or 0.000$ per 1000 characters
         self.price = 0.000        
@@ -58,6 +58,7 @@ class XTTSV2TTSProvider(BaseTTSProvider):
         output_file: str,
         audio_tags: AudioTags,
     ):
+        self.file_data = np.array([], dtype=np.float32)
         self._chunkify(text)
 
         logger.debug(f"Exporting the audio")
@@ -128,7 +129,7 @@ class XTTSV2TTSProvider(BaseTTSProvider):
                 
             if content != parsed_text[-1]:
                 pause_data = self._generate_pause(1250)
-                self.file_data = np.append(self.file_data, pause_bytes)
+                self.file_data = np.append(self.file_data, pause_data)
         logger.debug("Chunkifying done")
         
     def _xtts_digest_chunk(self, text, max_len=250):

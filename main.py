@@ -133,6 +133,13 @@ def handle_args():
         help="Break duration in milliseconds for the different paragraphs or sections (default: 1250, means 1.25 s). Valid values range from 0 to 5000 milliseconds for Azure TTS.",
     )
 
+    xtts_tts_group = parser.add_argument_group(title="xtts specific")
+    xtts_tts_group.add_argument(
+        "--gpu",
+        action="store_true",
+        help="Make XTTS TTS utilize GPU for faster processing.",
+    )
+
     args = parser.parse_args()
     return GeneralConfig(args)
 
