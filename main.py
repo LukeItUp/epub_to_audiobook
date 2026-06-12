@@ -1,18 +1,12 @@
 import argparse
-import logging
+from pathlib import Path
 
 from audiobook_generator.config.general_config import GeneralConfig
 from audiobook_generator.core.audiobook_generator import AudiobookGenerator
 from audiobook_generator.tts_providers.base_tts_provider import (
     get_supported_tts_providers,
 )
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-logger = logging.getLogger(__name__)
+from audiobook_generator.utils.log_handler import setup_logging, generate_unique_log_path
 
 
 def handle_args():
@@ -82,6 +76,42 @@ def handle_args():
     )
 
     parser.add_argument(
+        "--remove_reference_numbers",
+        action="store_true",
+        help="This will remove reference numbers from the end or middle of sentences (e.g [3] or [12.1]). Also useful for academic books."
+    )
+
+    parser.add_argument(
+        "--search_and_replace_file",
+        default="",
+        help="""Path to a file that contains 1 regex replace per line, to help with fixing pronunciations, etc. The format is:
+        <search>==<replace>
+        Note that you may have to specify word boundaries, to avoid replacing parts of words.
+        """,
+    )
+
+    parser.add_argument(
+        "--worker_count",
+        type=int,
+        default=1,
+        help="Specifies the number of parallel workers to use for audiobook generation. "
+        "Increasing this value can significantly speed up the process by processing multiple chapters simultaneously. "
+        "Note: Chapters may not be processed in sequential order, but this will not affect the final audiobook.",
+    )
+
+    parser.add_argument(
+        "--use_pydub_merge",
+        action="store_true",
+        help="Use pydub to merge audio segments of one chapter into single file instead of direct write. "
+        "Currently only supported for OpenAI and Azure TTS. "
+        "Direct write is faster but might skip audio segments if formats differ. "
+        "Pydub merge is slower but more reliable for different audio formats. It requires ffmpeg to be installed first. "
+        "You can use this option to avoid the issue of skipping audio segments in some cases. "
+        "However, it's recommended to use direct write for most cases as it's faster. "
+        "Only use this option if you encounter issues with direct write.",
+    )
+
+    parser.add_argument(
         "--voice_name",
         help="Various TTS providers has different voice names, look up for your provider settings.",
     )
@@ -94,6 +124,19 @@ def handle_args():
     parser.add_argument(
         "--model_name",
         help="Various TTS providers has different neural model names",
+    )
+
+    openai_tts_group = parser.add_argument_group(title="openai specific")
+    openai_tts_group.add_argument(
+        "--speed",
+        default=1.0,
+        type=float,
+        help="The speed of the generated audio. Select a value from 0.25 to 4.0. 1.0 is the default.",
+    )
+
+    openai_tts_group.add_argument(
+        "--instructions",
+        help="Instructions for the TTS model. Only supported for 'gpt-4o-mini-tts' model.",
     )
 
     edge_tts_group = parser.add_argument_group(title="edge specific")
@@ -133,6 +176,33 @@ def handle_args():
         help="Break duration in milliseconds for the different paragraphs or sections (default: 1250, means 1.25 s). Valid values range from 0 to 5000 milliseconds for Azure TTS.",
     )
 
+    piper_tts_group = parser.add_argument_group(title="piper specific")
+    piper_tts_group.add_argument(
+        "--piper_path",
+        default="piper",
+        help="Path to the Piper TTS executable",
+    )
+    piper_tts_group.add_argument(
+        "--piper_docker_image",
+        default="lscr.io/linuxserver/piper:latest",
+        help="Piper Docker image name (if using Docker)",
+    )
+    piper_tts_group.add_argument(
+        "--piper_speaker",
+        default=0,
+        help="Piper speaker id, used for multi-speaker models",
+    )
+    piper_tts_group.add_argument(
+        "--piper_sentence_silence",
+        default=0.2,
+        help="Seconds of silence after each sentence",
+    )
+    piper_tts_group.add_argument(
+        "--piper_length_scale",
+        default=1.0,
+        help="Phoneme length, a.k.a. speaking rate",
+    )
+    
     xtts_tts_group = parser.add_argument_group(title="xtts specific")
     xtts_tts_group.add_argument(
         "--gpu",
@@ -144,9 +214,24 @@ def handle_args():
     return GeneralConfig(args)
 
 
-def main():
-    config = handle_args()
-    logger.setLevel(config.log)
+def main(config=None, log_file=None):
+    if not config: # config passed from UI, or uses args if CLI
+        config = handle_args()
+
+    if log_file:
+        # If log_file is provided (e.g., from UI), use it directly as a Path object.
+        # The UI passes an absolute path string.
+        effective_log_file = Path(log_file)
+    else:
+        # Otherwise (e.g., CLI usage without a specific log file from UI),
+        # generate a unique log file name.
+        effective_log_file = generate_unique_log_path("EtA")
+    
+    # Ensure config.log_file is updated, as it's used by AudiobookGenerator for worker processes.
+    config.log_file = effective_log_file
+
+    setup_logging(config.log, str(effective_log_file))
+
     AudiobookGenerator(config).run()
 
 
