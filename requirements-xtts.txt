@@ -1,0 +1,5 @@
+coqui-tts
+coqui-tts[codec]
+torch
+torchaudio
+transformers==4.57
