@@ -11,12 +11,12 @@ from TTS.tts.models.xtts import Xtts
 
 from audiobook_generator.core.audio_tags import AudioTags
 from audiobook_generator.config.general_config import GeneralConfig
-from audiobook_generator.core.utils import split_text, set_audio_tags
+from audiobook_generator.utils.utils import split_text, set_audio_tags
 from audiobook_generator.tts_providers.base_tts_provider import BaseTTSProvider
 
 
 logger = logging.getLogger(__name__)
-XTTS_MODEL_PATH = "/home/luke/Projects/XTTS-v2"
+XTTS_MODEL_PATH = "/mnt/e/models/XTTS-v2"
 SPEAKER_PATH = os.path.join(XTTS_MODEL_PATH, "samples/en_sample.wav")
 
 
@@ -120,16 +120,13 @@ class XTTSV2TTSProvider(BaseTTSProvider):
         logger.debug("Chunkifying the text")
         parsed_text = self._parse_text(full_text)
         for content in parsed_text:
-            logger.debug(f"Content from parsed: <{content}>")
-            remainder = content
-            while remainder:
-                digest_chunk, remainder = self._xtts_digest_chunk(remainder)
-                audio_data = self._generate_audio(digest_chunk)
+            for chunk in split_text(content, 250, self.config.language):
+                audio_data = self._generate_audio(chunk)
                 self.file_data = np.append(self.file_data, audio_data)
-                
-            if content != parsed_text[-1]:
-                pause_data = self._generate_pause(1250)
-                self.file_data = np.append(self.file_data, pause_data)
+
+            pause_data = self._generate_pause(1250)
+            self.file_data = np.append(self.file_data, pause_data)
+
         logger.debug("Chunkifying done")
         
     def _xtts_digest_chunk(self, text, max_len=250):

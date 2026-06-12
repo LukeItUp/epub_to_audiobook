@@ -201,6 +201,8 @@ def handle_args():
         "--piper_length_scale",
         default=1.0,
         help="Phoneme length, a.k.a. speaking rate",
+    )
+    
     xtts_tts_group = parser.add_argument_group(title="xtts specific")
     xtts_tts_group.add_argument(
         "--gpu",
